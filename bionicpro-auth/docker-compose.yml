@@ -1,0 +1,71 @@
+version: '3.8'
+name: bionicpro-auth-compose
+
+services:
+  keycloak_db:
+    image: postgres:14
+    container_name: keycloak_db
+    environment:
+      POSTGRES_DB: keycloak_db
+      POSTGRES_USER: keycloak_user
+      POSTGRES_PASSWORD: keycloak_password
+    volumes:
+      - ../postgres-keycloak-data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - bionicpro-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak_user -d keycloak_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:21.1
+    container_name: keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://keycloak_db:5432/keycloak_db
+      KC_DB_USERNAME: keycloak_user
+      KC_DB_PASSWORD: keycloak_password
+    command: 
+      - start-dev
+      - --import-realm
+    volumes:
+      - ../keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+    ports:
+      - "8080:8080"
+    networks:
+      - bionicpro-network
+    depends_on:
+      keycloak_db:
+        condition: service_healthy
+
+
+  bionicpro-auth:
+    image: ${DOCKER_REGISTRY-}bionicproauth
+    container_name: bionicpro-auth
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_HTTP_PORTS=8080
+    volumes:
+      - shared-auth-keys:/app/shared-auth-keys
+    ports:
+      - "7000:8080"
+    build:
+      context: .
+      dockerfile: bionicpro-auth/Dockerfile
+    networks:
+      - bionicpro-network
+    depends_on:
+      - keycloak
+
+networks:
+  bionicpro-network:
+    driver: bridge
+
+volumes:
+  shared-auth-keys:
